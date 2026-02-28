@@ -1,88 +1,208 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {
+  Linking,
+  PermissionsAndroid,
+  Platform,
   SafeAreaView,
-  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
 } from 'react-native';
-import {Camera, useCameraDevice} from 'react-native-vision-camera';
-import {DataTypes, ObjectType, OpenCV} from 'react-native-fast-opencv';
+import {RNMediapipe, switchCamera} from '@thinksys/react-native-mediapipe';
 
-function App(): React.JSX.Element {
-  const [permission, setPermission] = useState<
-    'granted' | 'denied' | 'pending'
-  >('pending');
-  const [cvResult, setCvResult] = useState<string>('Not tested yet');
-  const device = useCameraDevice('back');
+type Pt = {
+  x: number;
+  y: number;
+  z?: number;
+  visibility?: number;
+  presence?: number;
+};
+
+type PosePayload = {
+  landmarks?: Pt[];
+  worldLandmarks?: Pt[];
+};
+
+const IDX = {
+  LEFT_SHOULDER: 11,
+  LEFT_ELBOW: 13,
+  LEFT_WRIST: 15,
+} as const;
+
+const angleABC = (a: Pt, b: Pt, c: Pt) => {
+  const ab = {x: a.x - b.x, y: a.y - b.y};
+  const cb = {x: c.x - b.x, y: c.y - b.y};
+  const dot = ab.x * cb.x + ab.y * cb.y;
+  const magAB = Math.hypot(ab.x, ab.y);
+  const magCB = Math.hypot(cb.x, cb.y);
+  if (!magAB || !magCB) {
+    return 180;
+  }
+  const cos = Math.max(-1, Math.min(1, dot / (magAB * magCB)));
+  return (Math.acos(cos) * 180) / Math.PI;
+};
+
+export default function App() {
+  const [landmarks, setLandmarks] = useState<PosePayload | null>(null);
+  const [reps, setReps] = useState(0);
+  const [cameraPermission, setCameraPermission] = useState<
+    'checking' | 'granted' | 'denied' | 'never_ask_again'
+  >(Platform.OS === 'android' ? 'checking' : 'granted');
+
+  const hasLoggedOnce = useRef(false);
+  const phaseRef = useRef<'up' | 'down'>('down');
+  const angleEmaRef = useRef<number | null>(null);
+
+  const processCurl = (payload: PosePayload) => {
+    const pts = payload.worldLandmarks ?? payload.landmarks;
+    if (!pts || pts.length <= IDX.LEFT_WRIST) {
+      return;
+    }
+
+    const shoulder = pts[IDX.LEFT_SHOULDER];
+    const elbow = pts[IDX.LEFT_ELBOW];
+    const wrist = pts[IDX.LEFT_WRIST];
+
+    if (!shoulder || !elbow || !wrist) {
+      return;
+    }
+
+    const confident = [shoulder, elbow, wrist].every(
+      point => (point.visibility ?? 1) > 0.5 && (point.presence ?? 1) > 0.5,
+    );
+    if (!confident) {
+      return;
+    }
+
+    const rawAngle = angleABC(shoulder, elbow, wrist);
+    const alpha = 0.25;
+    angleEmaRef.current =
+      angleEmaRef.current == null
+        ? rawAngle
+        : alpha * rawAngle + (1 - alpha) * angleEmaRef.current;
+
+    const angle = angleEmaRef.current;
+    const UP = 55;
+    const DOWN = 150;
+
+    if (phaseRef.current === 'down' && angle < UP) {
+      phaseRef.current = 'up';
+    } else if (phaseRef.current === 'up' && angle > DOWN) {
+      phaseRef.current = 'down';
+      setReps(current => current + 1);
+    }
+  };
+
+  const requestCameraPermission = async () => {
+    if (Platform.OS !== 'android') {
+      setCameraPermission('granted');
+      return;
+    }
+
+    const result = await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.CAMERA,
+    );
+
+    if (result === PermissionsAndroid.RESULTS.GRANTED) {
+      setCameraPermission('granted');
+    } else if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
+      setCameraPermission('never_ask_again');
+    } else {
+      setCameraPermission('denied');
+    }
+  };
 
   useEffect(() => {
-    const requestPermission = async () => {
-      const status = await Camera.requestCameraPermission();
-      setPermission(status === 'granted' ? 'granted' : 'denied');
+    const initPermission = async () => {
+      if (Platform.OS !== 'android') {
+        return;
+      }
+
+      const hasPermission = await PermissionsAndroid.check(
+        PermissionsAndroid.PERMISSIONS.CAMERA,
+      );
+
+      if (hasPermission) {
+        setCameraPermission('granted');
+        return;
+      }
+
+      await requestCameraPermission();
     };
 
-    requestPermission().catch(() => {
-      setPermission('denied');
-    });
+    initPermission();
   }, []);
 
-  const statusText = useMemo(() => {
-    if (permission === 'pending') {
-      return 'Requesting camera permission...';
-    }
-    if (permission === 'denied') {
-      return 'Camera permission denied. Enable it in app settings.';
-    }
-    return 'Camera ready. OpenCV bridge installed.';
-  }, [permission]);
-
-  const runOpenCvSanityCheck = () => {
-    try {
-      const src = OpenCV.createObject(
-        ObjectType.Mat,
-        2,
-        2,
-        DataTypes.CV_8U,
-        [0, 127, 200, 255],
-      );
-      const dst = OpenCV.createObject(ObjectType.Mat, 2, 2, DataTypes.CV_8U);
-      OpenCV.invoke('bitwise_not', src, dst);
-      const out = OpenCV.matToBuffer(dst, 'uint8');
-      setCvResult(`OpenCV OK: [${Array.from(out.buffer).join(', ')}]`);
-      OpenCV.clearBuffers();
-    } catch (error) {
-      setCvResult(`OpenCV error: ${(error as Error).message}`);
-    }
+  const onFlip = () => {
+    switchCamera();
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#10131a" />
-      <View style={styles.header}>
-        <Text style={styles.title}>HenHacks Mobile CV</Text>
-        <Text style={styles.subtitle}>{statusText}</Text>
-      </View>
+      <Text style={styles.title}>MediaPipe Demo</Text>
+      <Text style={styles.reps}>Reps: {reps}</Text>
 
-      <View style={styles.cameraWrapper}>
-        {permission === 'granted' && device != null ? (
-          <Camera style={StyleSheet.absoluteFill} device={device} isActive />
-        ) : (
-          <View style={styles.placeholder}>
-            <Text style={styles.placeholderText}>
-              Camera preview will appear here
+      {cameraPermission === 'granted' ? (
+        <RNMediapipe
+          width={300}
+          height={300}
+          face={true}
+          leftArm={true}
+          rightArm={true}
+          leftWrist={true}
+          rightWrist={true}
+          torso={true}
+          leftLeg={true}
+          rightLeg={true}
+          leftAnkle={true}
+          rightAnkle={true}
+          onLandmark={raw => {
+            const data: PosePayload =
+              typeof raw === 'string' ? JSON.parse(raw) : (raw as PosePayload);
+
+            if (!hasLoggedOnce.current) {
+              hasLoggedOnce.current = true;
+              console.log('Body Landmark Data:', JSON.stringify(data, null, 2));
+            }
+
+            processCurl(data);
+            setLandmarks(data);
+          }}
+        />
+      ) : (
+        <>
+          <Text style={styles.debug}>
+            {cameraPermission === 'checking'
+              ? 'Checking camera permission...'
+              : cameraPermission === 'never_ask_again'
+                ? 'Camera permission blocked. Open settings and enable Camera.'
+                : 'Camera permission required.'}
+          </Text>
+          <TouchableOpacity
+            onPress={
+              cameraPermission === 'never_ask_again'
+                ? () => Linking.openSettings()
+                : requestCameraPermission
+            }
+            style={styles.btn}>
+            <Text style={styles.btnText}>
+              {cameraPermission === 'never_ask_again'
+                ? 'Open Settings'
+                : 'Enable Camera'}
             </Text>
-          </View>
-        )}
-      </View>
+          </TouchableOpacity>
+        </>
+      )}
 
-      <View style={styles.footer}>
-        <TouchableOpacity style={styles.button} onPress={runOpenCvSanityCheck}>
-          <Text style={styles.buttonLabel}>Run OpenCV Sanity Check</Text>
-        </TouchableOpacity>
-        <Text style={styles.cvResult}>{cvResult}</Text>
-      </View>
+      <TouchableOpacity onPress={onFlip} style={styles.btn}>
+        <Text style={styles.btnText}>Switch Camera</Text>
+      </TouchableOpacity>
+
+      {landmarks && (
+        <Text style={styles.debug} numberOfLines={3}>
+          {JSON.stringify(landmarks).slice(0, 120)}...
+        </Text>
+      )}
     </SafeAreaView>
   );
 }
@@ -90,58 +210,39 @@ function App(): React.JSX.Element {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#10131a',
-  },
-  header: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
+    backgroundColor: '#0a0a0a',
+    alignItems: 'center',
+    paddingTop: 20,
+    gap: 16,
   },
   title: {
-    color: '#f4f7ff',
-    fontSize: 24,
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+    letterSpacing: 1,
+  },
+  reps: {
+    color: '#fff',
+    fontSize: 20,
     fontWeight: '700',
   },
-  subtitle: {
-    marginTop: 6,
-    color: '#c5d1e8',
-    fontSize: 14,
-  },
-  cameraWrapper: {
-    margin: 16,
-    borderRadius: 14,
-    overflow: 'hidden',
-    backgroundColor: '#1b2230',
-    flex: 1,
-  },
-  placeholder: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  placeholderText: {
-    color: '#8f9ab1',
-  },
-  footer: {
-    paddingHorizontal: 16,
-    paddingBottom: 18,
-    gap: 10,
-  },
-  button: {
-    borderRadius: 10,
+  btn: {
+    backgroundColor: '#1a1a1a',
+    borderWidth: 1,
+    borderColor: '#333',
+    paddingHorizontal: 24,
     paddingVertical: 12,
-    alignItems: 'center',
-    backgroundColor: '#2962ff',
+    borderRadius: 8,
   },
-  buttonLabel: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '600',
+  btnText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
   },
-  cvResult: {
-    color: '#d7e1f6',
-    fontSize: 13,
+  debug: {
+    color: '#555',
+    fontSize: 11,
+    paddingHorizontal: 16,
+    fontFamily: 'monospace',
   },
 });
-
-export default App;

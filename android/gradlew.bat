@@ -30,6 +30,10 @@ if "%DIRNAME%"=="" set DIRNAME=.
 set APP_BASE_NAME=%~n0
 set APP_HOME=%DIRNAME%
 
+@rem Prefer JDK 17 for Android/Gradle compatibility in this project
+set PROJECT_JDK17=C:\Program Files\Java\jdk-17
+if exist "%PROJECT_JDK17%\bin\java.exe" set JAVA_HOME=%PROJECT_JDK17%
+
 @rem Resolve any "." and ".." in APP_HOME to make it shorter.
 for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi
 
