@@ -8,11 +8,9 @@ const exclusionList = require('metro-config/src/defaults/exclusionList');
  * @type {import('metro-config').MetroConfig}
  */
 const config = {
-	resolver: {
-		blockList: exclusionList([
-			/node_modules\/.*\/android\/build\/.*/,
-		]),
-	},
+  resolver: {
+    blockList: exclusionList([/node_modules\/.*\/android\/build\/.*/]),
+  },
 };
 
 module.exports = mergeConfig(getDefaultConfig(__dirname), config);

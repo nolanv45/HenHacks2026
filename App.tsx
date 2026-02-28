@@ -8,7 +8,7 @@ import {
   Text,
   TouchableOpacity,
 } from 'react-native';
-import {RNMediapipe, switchCamera} from '@thinksys/react-native-mediapipe';
+import {RNMediapipe} from '@thinksys/react-native-mediapipe';
 
 type Pt = {
   x: number;
@@ -117,25 +117,11 @@ export default function App() {
       if (Platform.OS !== 'android') {
         return;
       }
-
-      const hasPermission = await PermissionsAndroid.check(
-        PermissionsAndroid.PERMISSIONS.CAMERA,
-      );
-
-      if (hasPermission) {
-        setCameraPermission('granted');
-        return;
-      }
-
       await requestCameraPermission();
     };
 
     initPermission();
   }, []);
-
-  const onFlip = () => {
-    switchCamera();
-  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -175,8 +161,8 @@ export default function App() {
             {cameraPermission === 'checking'
               ? 'Checking camera permission...'
               : cameraPermission === 'never_ask_again'
-                ? 'Camera permission blocked. Open settings and enable Camera.'
-                : 'Camera permission required.'}
+              ? 'Camera permission blocked. Open settings and enable Camera.'
+              : 'Camera permission required.'}
           </Text>
           <TouchableOpacity
             onPress={
@@ -193,10 +179,6 @@ export default function App() {
           </TouchableOpacity>
         </>
       )}
-
-      <TouchableOpacity onPress={onFlip} style={styles.btn}>
-        <Text style={styles.btnText}>Switch Camera</Text>
-      </TouchableOpacity>
 
       {landmarks && (
         <Text style={styles.debug} numberOfLines={3}>
