@@ -175,8 +175,8 @@ export default function App() {
             {cameraPermission === 'checking'
               ? 'Checking camera permission...'
               : cameraPermission === 'never_ask_again'
-                ? 'Camera permission blocked. Open settings and enable Camera.'
-                : 'Camera permission required.'}
+              ? 'Camera permission blocked. Open settings and enable Camera.'
+              : 'Camera permission required.'}
           </Text>
           <TouchableOpacity
             onPress={
