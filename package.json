@@ -11,7 +11,11 @@
   },
   "dependencies": {
     "react": "18.2.0",
-    "react-native": "0.74.5"
+    "react-native": "0.74.5",
+    "react-native-fast-opencv": "^0.4.8",
+    "react-native-reanimated": "^4.2.2",
+    "react-native-vision-camera": "^4.7.3",
+    "react-native-worklets-core": "^1.6.3"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
