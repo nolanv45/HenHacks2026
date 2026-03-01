@@ -1,17 +1,28 @@
+/**
+ * WorkoutPanel.tsx
+ *
+ * Displays the live workout HUD during an active session.
+ * Shows the current rep count, the live joint angle being tracked,
+ * and a horizontally scrollable row of workout selector chips.
+ *
+ * This is a pure presentational component as it holds no state of its own.
+ * All values are passed in from App.tsx and all interactions fire callbacks
+ * back up to the parent.
+ */
 import React from 'react';
 import {StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 
 export type WorkoutOption = {
-  id: string;
+  id: number;
   label: string;
 };
 
 type WorkoutPanelProps = {
   reps: number;
   angle: number | null;
-  selectedWorkoutId: string;
+  selectedWorkoutId: number;
   workouts: WorkoutOption[];
-  onSelectWorkout: (id: string) => void;
+  onSelectWorkout: (id: number) => void;
 };
 
 export default function WorkoutPanel({
@@ -48,6 +59,14 @@ export default function WorkoutPanel({
   );
 }
 
+
+/**
+ * Styles for WorkoutPanel.
+ *
+ * chipSelected only changes the border color (white vs dark) to indicate
+ * the active workout — the chip background stays the same. If the design
+ * evolves, a background fill on selection might improve visibility.
+ */
 const styles = StyleSheet.create({
   wrapper: {
     alignItems: 'center',
