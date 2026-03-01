@@ -1,14 +1,13 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {
-  Linking,
   PermissionsAndroid,
   Platform,
   SafeAreaView,
   StyleSheet,
   Text,
-  TouchableOpacity,
 } from 'react-native';
-import {RNMediapipe, switchCamera} from '@thinksys/react-native-mediapipe';
+import {RNMediapipe} from '@thinksys/react-native-mediapipe';
+import WorkoutPanel, {WorkoutOption} from './components/WorkoutPanel';
 
 type Pt = {
   x: number;
@@ -23,11 +22,30 @@ type PosePayload = {
   worldLandmarks?: Pt[];
 };
 
-const IDX = {
-  LEFT_SHOULDER: 11,
-  LEFT_ELBOW: 13,
-  LEFT_WRIST: 15,
-} as const;
+type WorkoutConfig = {
+  id: string;
+  label: string;
+  points: [number, number, number];
+  contractBelow: number;
+  extendAbove: number;
+};
+
+const WORKOUTS: WorkoutConfig[] = [
+  {
+    id: 'curl',
+    label: 'Bicep Curl',
+    points: [11, 13, 15],
+    contractBelow: 55,
+    extendAbove: 150,
+  },
+  {
+    id: 'press',
+    label: 'Shoulder Press',
+    points: [11, 13, 15],
+    contractBelow: 95,
+    extendAbove: 160,
+  },
+];
 
 const angleABC = (a: Pt, b: Pt, c: Pt) => {
   const ab = {x: a.x - b.x, y: a.y - b.y};
@@ -45,23 +63,41 @@ const angleABC = (a: Pt, b: Pt, c: Pt) => {
 export default function App() {
   const [landmarks, setLandmarks] = useState<PosePayload | null>(null);
   const [reps, setReps] = useState(0);
-  const [cameraPermission, setCameraPermission] = useState<
-    'checking' | 'granted' | 'denied' | 'never_ask_again'
-  >(Platform.OS === 'android' ? 'checking' : 'granted');
+  const [currentAngle, setCurrentAngle] = useState<number | null>(null);
+  const [selectedWorkoutId, setSelectedWorkoutId] = useState(WORKOUTS[0].id);
+  const [hasCameraPermission, setHasCameraPermission] = useState(
+    Platform.OS !== 'android',
+  );
 
   const hasLoggedOnce = useRef(false);
-  const phaseRef = useRef<'up' | 'down'>('down');
+  const phaseRef = useRef<'contracted' | 'extended' | null>(null);
   const angleEmaRef = useRef<number | null>(null);
 
-  const processCurl = (payload: PosePayload) => {
+  const selectedWorkout =
+    WORKOUTS.find(workout => workout.id === selectedWorkoutId) ?? WORKOUTS[0];
+  const workoutOptions: WorkoutOption[] = WORKOUTS.map(workout => ({
+    id: workout.id,
+    label: workout.label,
+  }));
+
+  const onSelectWorkout = (id: string) => {
+    setSelectedWorkoutId(id);
+    setReps(0);
+    setCurrentAngle(null);
+    phaseRef.current = null;
+    angleEmaRef.current = null;
+  };
+
+  const processWorkout = (payload: PosePayload) => {
     const pts = payload.worldLandmarks ?? payload.landmarks;
-    if (!pts || pts.length <= IDX.LEFT_WRIST) {
+    if (!pts || pts.length <= selectedWorkout.points[2]) {
       return;
     }
 
-    const shoulder = pts[IDX.LEFT_SHOULDER];
-    const elbow = pts[IDX.LEFT_ELBOW];
-    const wrist = pts[IDX.LEFT_WRIST];
+    const [aIndex, bIndex, cIndex] = selectedWorkout.points;
+    const shoulder = pts[aIndex];
+    const elbow = pts[bIndex];
+    const wrist = pts[cIndex];
 
     if (!shoulder || !elbow || !wrist) {
       return;
@@ -81,68 +117,57 @@ export default function App() {
         ? rawAngle
         : alpha * rawAngle + (1 - alpha) * angleEmaRef.current;
 
-    const angle = angleEmaRef.current;
-    const UP = 55;
-    const DOWN = 150;
+    const angle = angleEmaRef.current ?? rawAngle;
+    setCurrentAngle(angle);
 
-    if (phaseRef.current === 'down' && angle < UP) {
-      phaseRef.current = 'up';
-    } else if (phaseRef.current === 'up' && angle > DOWN) {
-      phaseRef.current = 'down';
+    if (phaseRef.current == null) {
+      phaseRef.current =
+        angle > selectedWorkout.extendAbove ? 'extended' : 'contracted';
+      return;
+    }
+
+    if (
+      phaseRef.current === 'extended' &&
+      angle < selectedWorkout.contractBelow
+    ) {
+      phaseRef.current = 'contracted';
+    } else if (
+      phaseRef.current === 'contracted' &&
+      angle > selectedWorkout.extendAbove
+    ) {
+      phaseRef.current = 'extended';
       setReps(current => current + 1);
     }
   };
 
-  const requestCameraPermission = async () => {
-    if (Platform.OS !== 'android') {
-      setCameraPermission('granted');
-      return;
-    }
-
-    const result = await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.CAMERA,
-    );
-
-    if (result === PermissionsAndroid.RESULTS.GRANTED) {
-      setCameraPermission('granted');
-    } else if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
-      setCameraPermission('never_ask_again');
-    } else {
-      setCameraPermission('denied');
-    }
-  };
-
   useEffect(() => {
-    const initPermission = async () => {
+    const askPermission = async () => {
       if (Platform.OS !== 'android') {
         return;
       }
 
-      const hasPermission = await PermissionsAndroid.check(
+      const result = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.CAMERA,
       );
-
-      if (hasPermission) {
-        setCameraPermission('granted');
-        return;
-      }
-
-      await requestCameraPermission();
+      setHasCameraPermission(result === PermissionsAndroid.RESULTS.GRANTED);
     };
 
-    initPermission();
+    askPermission();
   }, []);
-
-  const onFlip = () => {
-    switchCamera();
-  };
 
   return (
     <SafeAreaView style={styles.container}>
       <Text style={styles.title}>MediaPipe Demo</Text>
-      <Text style={styles.reps}>Reps: {reps}</Text>
 
-      {cameraPermission === 'granted' ? (
+      <WorkoutPanel
+        reps={reps}
+        angle={currentAngle}
+        selectedWorkoutId={selectedWorkoutId}
+        workouts={workoutOptions}
+        onSelectWorkout={onSelectWorkout}
+      />
+
+      {hasCameraPermission ? (
         <RNMediapipe
           width={300}
           height={300}
@@ -165,38 +190,13 @@ export default function App() {
               console.log('Body Landmark Data:', JSON.stringify(data, null, 2));
             }
 
-            processCurl(data);
+            processWorkout(data);
             setLandmarks(data);
           }}
         />
       ) : (
-        <>
-          <Text style={styles.debug}>
-            {cameraPermission === 'checking'
-              ? 'Checking camera permission...'
-              : cameraPermission === 'never_ask_again'
-              ? 'Camera permission blocked. Open settings and enable Camera.'
-              : 'Camera permission required.'}
-          </Text>
-          <TouchableOpacity
-            onPress={
-              cameraPermission === 'never_ask_again'
-                ? () => Linking.openSettings()
-                : requestCameraPermission
-            }
-            style={styles.btn}>
-            <Text style={styles.btnText}>
-              {cameraPermission === 'never_ask_again'
-                ? 'Open Settings'
-                : 'Enable Camera'}
-            </Text>
-          </TouchableOpacity>
-        </>
+        <Text style={styles.debug}>Camera permission is required.</Text>
       )}
-
-      <TouchableOpacity onPress={onFlip} style={styles.btn}>
-        <Text style={styles.btnText}>Switch Camera</Text>
-      </TouchableOpacity>
 
       {landmarks && (
         <Text style={styles.debug} numberOfLines={3}>
@@ -220,24 +220,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     letterSpacing: 1,
-  },
-  reps: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  btn: {
-    backgroundColor: '#1a1a1a',
-    borderWidth: 1,
-    borderColor: '#333',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  btnText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '500',
   },
   debug: {
     color: '#555',
