@@ -11,6 +11,7 @@
  */
 import React from 'react';
 import {StyleSheet, Text, TouchableOpacity, View} from 'react-native';
+import {WorkoutChoiceItem} from './WorkoutChoices';
 
 export type WorkoutOption = {
   id: number;
@@ -21,7 +22,7 @@ type WorkoutPanelProps = {
   reps: number;
   angle: number | null;
   selectedWorkoutId: number;
-  workouts: WorkoutOption[];
+  workouts: WorkoutChoiceItem[];
   onSelectWorkout: (id: number) => void;
 };
 
@@ -34,22 +35,22 @@ export default function WorkoutPanel({
 }: WorkoutPanelProps) {
   return (
     <View style={styles.wrapper}>
-      <Text style={styles.reps}>Reps: {reps}</Text>
+      <Text style={styles.reps}>Reps: {reps}/{workouts[selectedWorkoutId].reps}</Text>
       <Text style={styles.angle}>
         Angle: {angle == null ? '--' : `${Math.round(angle)}°`}
       </Text>
 
       <View style={styles.row}>
         {workouts.map(workout => {
-          const selected = selectedWorkoutId === workout.id;
+          const selected = selectedWorkoutId === workout.workoutId;
 
           return (
             <TouchableOpacity
-              key={workout.id}
-              onPress={() => onSelectWorkout(workout.id)}
+              key={workout.workoutId}
+              onPress={() => onSelectWorkout(workout.workoutId)}
               style={[styles.chip, selected && styles.chipSelected]}>
               <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                {workout.label}
+                {workout.key}
               </Text>
             </TouchableOpacity>
           );

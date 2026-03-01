@@ -17,7 +17,7 @@ type WorkoutConfig = {id: number; label: string; points: [number, number, number
 // Local redefinition of the same WorkoutConfig that already lives in App.tsx
 
 type HomeLandingProps = {
-  cameraPermission: CameraPermission;
+  cameraPermission: boolean;
   onStartWorkout: (choices: WorkoutChoiceItem[]) => void;
   requestCameraPermission: () => void;
   workoutChoices: WorkoutConfig[];
@@ -29,13 +29,9 @@ export default function HomeLanding({
   requestCameraPermission,
   workoutChoices,
 }: HomeLandingProps) {
-  const [choices, setChoices] = useState<WorkoutChoiceItem[]>(
-    makeDefaultWorkoutChoices(workoutChoices),
-  );
+  const [choices, setChoices] = useState<WorkoutChoiceItem[]>([]);
+  const canStart = choices.length > 0;
 
-  useEffect(() => {
-    setChoices(makeDefaultWorkoutChoices(workoutChoices));
-  }, [workoutChoices]);
 
   return (
     <View style={styles.page}>
@@ -50,56 +46,42 @@ export default function HomeLanding({
           Open the camera and start counting reps in real time.
         </Text>
 
+    
+
+         <TouchableOpacity
+          onPress={() => onStartWorkout(choices)}
+          style={canStart ? styles.startBtn : styles.startBtnDisabled}
+          disabled={!canStart}
+          activeOpacity={0.85}>
+      
+        </TouchableOpacity>
+
         <WorkoutChoices
           workouts={workoutChoices}
           value={choices}
           onChange={setChoices}
         />
+       
 
-        <TouchableOpacity
-          onPress={() => onStartWorkout(choices)}
-          style={[
-            styles.primaryBtn,
-            choices.length === 0 && styles.primaryBtnDisabled,
-          ]}
-          disabled={choices.length === 0}
-          activeOpacity={0.9}>
-          <Text style={styles.primaryBtnText}>
-            {choices.length === 0 ? 'Select a workout' : 'Start'}
-          </Text>
-        </TouchableOpacity>
+       
 
-        {cameraPermission !== 'granted' && (
+        {!cameraPermission && (
           <View style={styles.notice}>
             <Text style={styles.noticeText}>Camera permission required.</Text>
             <TouchableOpacity
-              onPress={
-                cameraPermission === 'never_ask_again'
-                  ? () => Linking.openSettings()
-                  : requestCameraPermission
-              }
+              onPress={requestCameraPermission}
               style={styles.secondaryBtn}
               activeOpacity={0.9}>
-              <Text style={styles.secondaryBtnText}>
-                {cameraPermission === 'never_ask_again'
-                  ? 'Open Settings'
-                  : 'Enable Camera'}
-              </Text>
+              <Text style={styles.secondaryBtnText}>Enable Camera</Text>
             </TouchableOpacity>
           </View>
-          
         )}
       </View>
 
       <View style={{flex: 1}} />
-      <Text style={styles.footerHint}>
-        Tip: Stand back so your whole arm is visible.
-      </Text>
     </View>
   );
 }
-
-
 const styles = StyleSheet.create({
   page: {
     flex: 1,
@@ -120,19 +102,38 @@ const styles = StyleSheet.create({
   },
   heroTitle: {color: '#FFFFFF', fontSize: 18, fontWeight: '800'},
   heroSubtitle: {marginTop: 6, color: '#A6ADBB', fontSize: 13, lineHeight: 18},
-  primaryBtn: {
-    marginTop: 14,
+  startBtn: {
+    marginTop: 16,
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
-    paddingVertical: 14,
+    paddingVertical: 16,
     alignItems: 'center',
   },
-  primaryBtnDisabled: {
+  startBtnDisabled: {
+    marginTop: 16,
     backgroundColor: '#2A2C35',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
   },
-  primaryBtnText: {color: '#0B0B0F', fontWeight: '800', fontSize: 15},
-  notice: {marginTop: 12, gap: 8},
-  noticeText: {color: '#A6ADBB', fontSize: 13},
+  startBtnText: {
+    color: '#0B0B0F',
+    fontWeight: '900',
+    fontSize: 16,
+  },
+  startBtnTextDisabled: {
+    color: '#6E7688',
+    fontWeight: '900',
+    fontSize: 16,
+  },
+  notice: {
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#1E202B',
+    gap: 8,
+  },
+  noticeText: {color: '#FFA657', fontSize: 13, fontWeight: '700'},
   secondaryBtn: {
     borderWidth: 1,
     borderColor: '#2A2C35',

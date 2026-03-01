@@ -9,7 +9,12 @@ import {
 import {RNMediapipe} from '@thinksys/react-native-mediapipe';
 import WorkoutPanel, {WorkoutOption} from './components/WorkoutPanel';
 import HomeLanding from './components/HomeLanding';
+import { WorkoutChoiceItem } from './components/WorkoutChoices';
 
+/* Pt:
+  Data structure representing single body landmark points in MediaPipe,
+  with optional confidence scores
+*/
 type Pt = {
   x: number;
   y: number;
@@ -18,50 +23,100 @@ type Pt = {
   presence?: number;
 };
 
+/* PosePayload:
+  Data structure for capturing the array of MediaPipe body landmarks rendered on the screen at a given frame
+*/
 type PosePayload = {
   landmarks?: Pt[];
   worldLandmarks?: Pt[];
 };
 
+/* WorkoutConfig:
+  Data structure for each workout, where:
+    - ID = rank/order of workouts
+    - Label = name of workout
+    - Points = MediaPipe landmark indices for calculating angles of each exercise
+    - contractBelow = angle of contracted position for each workout
+    - extendAbove = angle of extended position for each workout
+    - goalReps = amount of reps user wants to achieve in workout session
+*/
 type WorkoutConfig = {
-  id: string;
+  id: number;
   label: string;
   points: [number, number, number];
   contractBelow: number;
   extendAbove: number;
+  goalReps: number
 };
 
+/* WORKOUTS:
+  Array of possible exercises for user, initialized as an array of WorkoutConfigs
+*/
 const WORKOUTS: WorkoutConfig[] = [
   {
-    id: 'curl',
+    id: 0,
     label: 'Bicep Curl',
     points: [11, 13, 15],
     contractBelow: 55,
     extendAbove: 150,
+    goalReps: 10
   },
   {
-    id: 'press',
+    id: 1,
     label: 'Shoulder Press',
     points: [11, 13, 15],
     contractBelow: 95,
     extendAbove: 160,
+    goalReps: 10
   },
   {
-    id: 'situp',
+    id: 2,
     label: 'Sit-up',
     points: [11, 23, 25],
     contractBelow: 80,
     extendAbove: 155,
+    goalReps: 10
   },
   {
-    id: 'squat',
+    id: 3,
     label: 'Squat',
     points: [23, 25, 27],
+    contractBelow: 95,
+    extendAbove: 160,
+    goalReps: 10
+  },
+  {
+    id: 4,
+    label: 'Push-up',
+    points: [11, 13, 15],
+    contractBelow: 160,
+    extendAbove: 95,
+    goalReps: 10
+  },
+  {
+    id: 5,
+    label: 'Lateral raise',
+    points: [23, 11, 13],
     contractBelow: 80,
-    extendAbove: 155,
+    extendAbove: 20,
+    goalReps: 10
+  },
+  {
+    id: 6,
+    label: 'Glute bridge',
+    points: [11, 23, 25],
+    contractBelow: 160,
+    extendAbove: 120,
+    goalReps: 10
   },
 ];
 
+
+/*
+  Main mathematical function where, given three landmark points, it:
+    - Calculates the angle at the middle point b using dot product of vectors, forming two vectors ab and cb, representing different ligaments/limbs (i.e. arm and forearm for bicep curls)
+    - Takes the arccos of their dot product divided by the product of their lengths (magnitudes).
+*/
 const angleABC = (a: Pt, b: Pt, c: Pt) => {
   const ab = {x: a.x - b.x, y: a.y - b.y};
   const cb = {x: c.x - b.x, y: c.y - b.y};
@@ -76,9 +131,9 @@ const angleABC = (a: Pt, b: Pt, c: Pt) => {
 type Screen = 'home' | 'workout';
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>('home');
+  const [showLanding, setShowLanding] = useState(true);
+  const [activeWorkouts, setActiveWorkouts] = useState<WorkoutConfig[]>([]);
 
-  // ---- Rep counting state (kept from your original) ----
   const [landmarks, setLandmarks] = useState<PosePayload | null>(null);
   const [reps, setReps] = useState(0);
   const [currentAngle, setCurrentAngle] = useState<number | null>(null);
@@ -88,12 +143,31 @@ export default function App() {
   );
 
 
+  const phaseRef = useRef<'contracted' | 'extended' | null>(null);
+  const angleEmaRef = useRef<number | null>(null);
+
+  const selectedWorkout =
+    activeWorkouts.find(w => w.id === selectedWorkoutId) ??
+    activeWorkouts[0] ??
+    WORKOUTS[0];
+
+  const selectedWorkoutOptions: WorkoutChoiceItem[] = activeWorkouts.map(w => ({
+    key: w.label,
+    workoutId: w.id,
+    reps: w.goalReps,
+  }));
+
+  const selectedWorkoutRef = useRef(selectedWorkout);
+
+  useEffect(() => {
+    selectedWorkoutRef.current = selectedWorkout;
+  }, [selectedWorkout]);
+
   const requestCameraPermission = async () => {
     if (Platform.OS !== 'android') {
       setHasCameraPermission(true);
       return true;
     }
-
     const result = await PermissionsAndroid.request(
       PermissionsAndroid.PERMISSIONS.CAMERA,
     );
@@ -102,24 +176,38 @@ export default function App() {
     return granted;
   };
 
-  const phaseRef = useRef<'contracted' | 'extended' | null>(null);
-  const angleEmaRef = useRef<number | null>(null);
-  const [showLanding, setShowLanding] = useState(true);
-
-  const selectedWorkout =
-    WORKOUTS.find(workout => workout.id === selectedWorkoutId) ?? WORKOUTS[0];
-  const workoutOptions: WorkoutOption[] = WORKOUTS.map(workout => ({
-    id: workout.id,
-    label: workout.label,
-  }));
-
-  const selectedWorkoutRef = useRef(selectedWorkout);
   useEffect(() => {
-    selectedWorkoutRef.current = selectedWorkout;
-  }, [selectedWorkout]);
+    requestCameraPermission();
+  }, []);
 
-  const onSelectWorkout = (id: string) => {
-    const next = WORKOUTS.find(w => w.id === id) ?? WORKOUTS[0];
+  const onStartWorkout = (choices: WorkoutChoiceItem[]) => {
+    // Build activeWorkouts from user choices, applying their chosen reps
+    const resolved: WorkoutConfig[] = choices
+      .map(choice => {
+        const base = WORKOUTS.find(w => w.id === choice.workoutId);
+        if (!base) return null;
+        return {...base, goalReps: choice.reps};
+      })
+      .filter((w): w is WorkoutConfig => w !== null);
+
+    setActiveWorkouts(resolved);
+
+    // Default to first selected workout
+    if (resolved.length > 0) {
+      setSelectedWorkoutId(resolved[0].id);
+      selectedWorkoutRef.current = resolved[0];
+    }
+
+    setReps(0);
+    setCurrentAngle(null);
+    phaseRef.current = null;
+    angleEmaRef.current = null;
+    setShowLanding(false);
+  };
+
+  const onSelectWorkout = (id: number) => {
+    const next = activeWorkouts.find(w => w.id === id) ?? activeWorkouts[0];
+    if (!next) return;
     selectedWorkoutRef.current = next;
     setSelectedWorkoutId(id);
     setReps(0);
@@ -129,7 +217,7 @@ export default function App() {
   };
 
   const processWorkout = (payload: PosePayload) => {
-    const workout = selectedWorkoutRef.current
+    const workout = selectedWorkoutRef.current;
     const pts = payload.worldLandmarks ?? payload.landmarks;
     if (!pts || pts.length <= workout.points[2]) {
       return;
@@ -144,12 +232,8 @@ export default function App() {
       return;
     }
 
-    const confident = [a, b, c].every(
-      point => (point.visibility ?? 1) > 0.5 && (point.presence ?? 1) > 0.5,
-    );
+ 
 
-    setTrackingQuality(confident ? 'good' : 'low');
-    if (!confident) return;
 
     const rawAngle = angleABC(a, b, c);
     const alpha = 0.25;
@@ -160,10 +244,6 @@ export default function App() {
 
     const angle = angleEmaRef.current ?? rawAngle;
     setCurrentAngle(angle);
-
-    const onStartWorkout = () => {
-      setShowLanding(false);
-    }
 
     if (phaseRef.current == null) {
       phaseRef.current =
@@ -185,24 +265,6 @@ export default function App() {
     }
   };
 
-  useEffect(() => {
-    const askPermission = async () => {
-      if (Platform.OS !== 'android') {
-        return;
-      }
-
-      const result = await PermissionsAndroid.request(
-        PermissionsAndroid.PERMISSIONS.CAMERA,
-      );
-      setHasCameraPermission(result === PermissionsAndroid.RESULTS.GRANTED);
-    };
-
-    askPermission();
-  }, []);
-
-  const onStartWorkout = () => {
-    setShowLanding(false);
-  };
 
   return (
     <>
@@ -211,11 +273,10 @@ export default function App() {
           cameraPermission={hasCameraPermission}
           onStartWorkout={onStartWorkout}
           requestCameraPermission={requestCameraPermission}
-          styles={styles}
+          workoutChoices={WORKOUTS}
         />
       ) : (
         <SafeAreaView style={styles.container}>
-          <Text style={styles.title}>MediaPipe Demo</Text>
 
           {hasCameraPermission ? (
             <>
@@ -223,7 +284,7 @@ export default function App() {
                 reps={reps}
                 angle={currentAngle}
                 selectedWorkoutId={selectedWorkoutId}
-                workouts={workoutOptions}
+                workouts={selectedWorkoutOptions}
                 onSelectWorkout={onSelectWorkout}
               />
               <RNMediapipe
@@ -262,269 +323,21 @@ export default function App() {
   );
 }
 
-const SPACING = 16;
-const RADIUS = 18;
-
 const styles = StyleSheet.create({
-  safe: {
+  container: {
     flex: 1,
     backgroundColor: '#0B0B0F',
+    alignItems: 'center',
+    paddingTop: 16,
   },
-
-  // HOME
-  page: {
-    flex: 1,
-    paddingHorizontal: SPACING,
-    paddingTop: 10,
-  },
-  debug: {
-    color: '#555',
-    fontSize: 11,
-    fontFamily: 'monospace',
-  },
-  safe: {
-    flex: 1,
-    backgroundColor: '#0B0B0F',
-  },
-
-  // HOME
-  page: {
-    flex: 1,
-    paddingHorizontal: SPACING,
-    paddingTop: 10,
-  },
-  header: {
-    marginTop: 6,
-    marginBottom: 14,
-  },
-  greeting: {
-    color: '#FFFFFF',
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: -0.4,
-  },
-  subGreeting: {
-    marginTop: 6,
-    color: '#A6ADBB',
-    fontSize: 15,
-  },
-  heroCard: {
-    borderRadius: RADIUS,
-    backgroundColor: '#12131A',
-    borderWidth: 1,
-    borderColor: '#1E202B',
-    padding: SPACING,
-  },
-  heroTitle: {
+  title: {
     color: '#FFFFFF',
     fontSize: 20,
     fontWeight: '800',
-    letterSpacing: -0.2,
-  },
-  heroSubtitle: {
-    marginTop: 8,
-    color: '#A6ADBB',
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  primaryBtn: {
-    marginTop: 14,
-    height: 48,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-  primaryBtnText: {
-    color: '#0B0B0F',
-    fontSize: 16,
-    fontWeight: '800',
-    letterSpacing: -0.1,
-  },
-  notice: {
-    marginTop: 14,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: '#1E202B',
-    gap: 10,
-  },
-  noticeText: {
-    color: '#A6ADBB',
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  secondaryBtn: {
-    height: 44,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#1B1C22',
-    borderWidth: 1,
-    borderColor: '#2A2C35',
-  },
-  secondaryBtnWide: {
-    flex: 1,
-    height: 44,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#1B1C22',
-    borderWidth: 1,
-    borderColor: '#2A2C35',
-  },
-  secondaryBtnText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-
-  section: {
-    marginTop: 18,
-  },
-  sectionTitle: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '800',
     marginBottom: 12,
   },
-  row: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  statCard: {
-    flex: 1,
-    borderRadius: 16,
-    backgroundColor: '#12131A',
-    borderWidth: 1,
-    borderColor: '#1E202B',
-    padding: 14,
-  },
-  statLabel: {
-    color: '#A6ADBB',
-    fontSize: 12,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  statValue: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '900',
-    letterSpacing: -0.2,
-  },
-  footerHint: {
-    color: '#6E7688',
-    fontSize: 12,
-    textAlign: 'center',
-    marginBottom: 10,
-  },
-
-  // WORKOUT
-  workoutPage: {
-    flex: 1,
-    paddingHorizontal: SPACING,
-    paddingTop: 10,
-  },
-  workoutTopBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  topPill: {
-    paddingHorizontal: 14,
-    height: 36,
-    borderRadius: 999,
-    backgroundColor: '#1B1C22',
-    borderWidth: 1,
-    borderColor: '#2A2C35',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  topPillText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  topStatus: {
-    alignItems: 'flex-end',
-  },
-  topStatusLabel: {
-    color: '#A6ADBB',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  topStatusValue: {
-    marginTop: 2,
-    fontSize: 14,
-    fontWeight: '900',
-  },
-  good: {color: '#7EE787'},
-  low: {color: '#FFA657'},
-  unknown: {color: '#A6ADBB'},
-
-  counterCard: {
-    borderRadius: RADIUS,
-    backgroundColor: '#12131A',
-    borderWidth: 1,
-    borderColor: '#1E202B',
-    padding: SPACING,
-    marginBottom: 14,
-  },
-  counterLabel: {
-    color: '#A6ADBB',
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  counterValue: {
-    marginTop: 6,
-    color: '#FFFFFF',
-    fontSize: 44,
-    fontWeight: '900',
-    letterSpacing: -0.6,
-  },
-  counterActions: {
-    marginTop: 12,
-    flexDirection: 'row',
-    gap: 12,
-  },
-
-  cameraWrap: {
-    flex: 1,
-    borderRadius: RADIUS,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#1E202B',
-    backgroundColor: '#000000',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-  },
-
-  permissionBlock: {
-    flex: 1,
-    borderRadius: RADIUS,
-    borderWidth: 1,
-    borderColor: '#1E202B',
-    backgroundColor: '#12131A',
-    padding: SPACING,
-    justifyContent: 'center',
-    gap: 10,
-  },
-  permissionTitle: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  permissionText: {
-    color: '#A6ADBB',
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 6,
-  },
-
-  devHint: {
-    marginTop: 10,
-    color: '#6E7688',
+  debug: {
+    color: '#555',
     fontSize: 11,
     fontFamily: 'monospace',
   },

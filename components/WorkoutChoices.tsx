@@ -1,5 +1,5 @@
 import React, {useMemo} from 'react';
-import {StyleSheet, Text, TouchableOpacity, View, TextInput} from 'react-native';
+import {StyleSheet, Text, TouchableOpacity, View, TextInput, ScrollView} from 'react-native';
 
 export type WeightUnit = 'lbs' | 'kg';
 
@@ -43,7 +43,7 @@ export const makeDefaultWorkoutChoiceItem = (
 export const makeDefaultWorkoutChoices = (
   workouts: WorkoutConfig[],
 ): WorkoutChoiceItem[] => {
-  if (!workouts.length) return [];
+  if (!workouts || workouts.length === 0) return [];
   return [makeDefaultWorkoutChoiceItem(workouts[0])];
 };
 
@@ -83,6 +83,7 @@ export default function WorkoutChoices({workouts, value, onChange}: Props) {
 
 
   return (
+    <ScrollView>
     <View style={styles.wrap}>
       <Text style={styles.title}>Select workouts</Text>
       {workouts.map(workout => {
@@ -116,120 +117,74 @@ export default function WorkoutChoices({workouts, value, onChange}: Props) {
         );
       })}
     </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: {
-    marginTop: 18,
-    borderRadius: 18,
-    backgroundColor: '#12131A',
-    borderWidth: 1,
-    borderColor: '#1E202B',
-    padding: 16,
-    gap: 12,
-  },
-  headerRow: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12},
-  title: {color: '#FFFFFF', fontSize: 16, fontWeight: '900', letterSpacing: -0.2},
-  subtitle: {marginTop: 6, color: '#A6ADBB', fontSize: 12, fontWeight: '700'},
-  addBtn: {
-    height: 36,
-    paddingHorizontal: 14,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-  addBtnDisabled: {backgroundColor: '#2A2C35'},
-  addBtnText: {color: '#0B0B0F', fontSize: 13, fontWeight: '900'},
-  addBtnTextDisabled: {color: '#A6ADBB'},
-  empty: {paddingVertical: 10},
-  emptyText: {color: '#A6ADBB', fontSize: 12, lineHeight: 18},
-  list: {gap: 12},
-  card: {
-    borderRadius: 16,
-    backgroundColor: '#0F1016',
-    borderWidth: 1,
-    borderColor: '#1E202B',
+    marginTop: 12,
     padding: 12,
-    gap: 10,
-  },
-  cardTopRow: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10},
-  workoutChip: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    backgroundColor: '#1B1C22',
-    borderWidth: 1,
-    borderColor: '#2A2C35',
-  },
-  workoutChipText: {color: '#FFFFFF', fontSize: 13, fontWeight: '900'},
-  workoutChipHint: {marginTop: 4, color: '#A6ADBB', fontSize: 11, fontWeight: '700'},
-  orderCol: {gap: 8},
-  iconBtn: {
-    width: 36,
-    height: 36,
     borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#1B1C22',
-    borderWidth: 1,
-    borderColor: '#2A2C35',
-  },
-  iconBtnDisabled: {opacity: 0.45},
-  iconBtnText: {color: '#FFFFFF', fontSize: 14, fontWeight: '900'},
-  controlsRow: {flexDirection: 'row', alignItems: 'center', gap: 12},
-  controlBlock: {flex: 1, gap: 8},
-  controlLabel: {color: '#A6ADBB', fontSize: 11, fontWeight: '800'},
-  stepper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-    height: 40,
-    borderRadius: 14,
-    paddingHorizontal: 10,
     backgroundColor: '#12131A',
     borderWidth: 1,
     borderColor: '#1E202B',
+    gap: 8,
   },
-  stepBtn: {
-    width: 34,
-    height: 30,
-    borderRadius: 10,
+  title: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  row: {
+    flexDirection: 'row',      // chip and input side by side
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#1B1C22',
-    borderWidth: 1,
-    borderColor: '#2A2C35',
+    gap: 8,
   },
-  stepBtnText: {color: '#FFFFFF', fontSize: 16, fontWeight: '900'},
-  stepValue: {color: '#FFFFFF', fontSize: 14, fontWeight: '900', minWidth: 22, textAlign: 'center'},
-  weightRow: {flexDirection: 'row', alignItems: 'center', gap: 10},
-  unitPills: {flexDirection: 'row', alignItems: 'center', gap: 8},
-  unitPill: {
-    height: 34,
+  chip: {
+    flex: 1,                   // takes remaining space
     paddingHorizontal: 12,
+    paddingVertical: 10,
     borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#1B1C22',
     borderWidth: 1,
     borderColor: '#2A2C35',
+    backgroundColor: '#1B1C22',
   },
-  unitPillSelected: {backgroundColor: '#FFFFFF'},
-  unitPillText: {color: '#FFFFFF', fontSize: 12, fontWeight: '900'},
-  unitPillTextSelected: {color: '#0B0B0F'},
-  removeBtn: {
+  chipSelected: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#FFFFFF',
+  },
+  chipText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  chipTextSelected: {
+    color: '#0B0B0F',
+  },
+  repsWrap: {
+    alignItems: 'center',
+    gap: 2,
+  },
+  repsInput: {
+    width: 52,
     height: 40,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#1B1C22',
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#2A2C35',
+    backgroundColor: '#0F1117',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '700',
   },
-  removeBtnText: {color: '#FFA657', fontSize: 12, fontWeight: '900'},
+  repsInputDisabled: {
+    opacity: 0.35,
+  },
+  repsLabel: {
+    color: '#A6ADBB',
+    fontSize: 10,
+    fontWeight: '700',
+  },
 });
