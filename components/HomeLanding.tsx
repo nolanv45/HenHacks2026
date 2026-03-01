@@ -53,6 +53,9 @@ export default function HomeLanding({
           style={canStart ? styles.startBtn : styles.startBtnDisabled}
           disabled={!canStart}
           activeOpacity={0.85}>
+            <Text style={canStart ? styles.startBtnText : styles.startBtnTextDisabled}>
+                {canStart ? '▶  Start Workout' : 'Select a workout first'}
+             </Text>
       
         </TouchableOpacity>
 

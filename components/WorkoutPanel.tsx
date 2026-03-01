@@ -10,19 +10,19 @@
  * back up to the parent.
  */
 import React from 'react';
-import {StyleSheet, Text, TouchableOpacity, View} from 'react-native';
-import {WorkoutChoiceItem} from './WorkoutChoices';
+import {ScrollView, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 
 export type WorkoutOption = {
   id: number;
   label: string;
+  goalReps: number;
 };
 
 type WorkoutPanelProps = {
   reps: number;
   angle: number | null;
   selectedWorkoutId: number;
-  workouts: WorkoutChoiceItem[];
+  workouts: WorkoutOption[];
   onSelectWorkout: (id: number) => void;
 };
 
@@ -33,29 +33,46 @@ export default function WorkoutPanel({
   workouts,
   onSelectWorkout,
 }: WorkoutPanelProps) {
+  // safe lookup — never use array index directly
+  const current = workouts.find(w => w.id === selectedWorkoutId) ?? workouts[0] ?? null;
+
+  if (!current) {
+    return (
+      <View style={styles.wrapper}>
+        <Text style={styles.reps}>No workout selected.</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.wrapper}>
-      <Text style={styles.reps}>Reps: {reps}/{workouts[selectedWorkoutId].reps}</Text>
+      <Text style={styles.label}>{current.label}</Text>
+      <Text style={styles.reps}>
+        {reps} / {current.goalReps} reps
+      </Text>
       <Text style={styles.angle}>
         Angle: {angle == null ? '--' : `${Math.round(angle)}°`}
       </Text>
 
-      <View style={styles.row}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.row}>
         {workouts.map(workout => {
-          const selected = selectedWorkoutId === workout.workoutId;
+          const selected = selectedWorkoutId === workout.id;
 
           return (
             <TouchableOpacity
-              key={workout.workoutId}
-              onPress={() => onSelectWorkout(workout.workoutId)}
+              key={workout.id}
+              onPress={() => onSelectWorkout(workout.id)}
               style={[styles.chip, selected && styles.chipSelected]}>
               <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                {workout.key}
+                {workout.label}
               </Text>
             </TouchableOpacity>
           );
         })}
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -71,12 +88,25 @@ export default function WorkoutPanel({
 const styles = StyleSheet.create({
   wrapper: {
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#12131A',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1E202B',
+    width: '100%',
+  },
+  label: {
+    color: '#A6ADBB',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
   },
   reps: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: '700',
+    color: '#FFFFFF',
+    fontSize: 28,
+    fontWeight: '900',
   },
   angle: {
     color: '#ddd',

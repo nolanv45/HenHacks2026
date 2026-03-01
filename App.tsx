@@ -1,12 +1,15 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {
   PermissionsAndroid,
   Platform,
   SafeAreaView,
   StyleSheet,
   Text,
+  View,
+  Dimensions,
+  TouchableOpacity,
 } from 'react-native';
-import {RNMediapipe} from '@thinksys/react-native-mediapipe';
+import {RNMediapipe, switchCamera} from '@thinksys/react-native-mediapipe';
 import WorkoutPanel, {WorkoutOption} from './components/WorkoutPanel';
 import HomeLanding from './components/HomeLanding';
 import { WorkoutChoiceItem } from './components/WorkoutChoices';
@@ -89,24 +92,8 @@ const WORKOUTS: WorkoutConfig[] = [
     id: 4,
     label: 'Push-up',
     points: [11, 13, 15],
-    contractBelow: 160,
-    extendAbove: 95,
-    goalReps: 10
-  },
-  {
-    id: 5,
-    label: 'Lateral raise',
-    points: [23, 11, 13],
-    contractBelow: 80,
-    extendAbove: 20,
-    goalReps: 10
-  },
-  {
-    id: 6,
-    label: 'Glute bridge',
-    points: [11, 23, 25],
-    contractBelow: 160,
-    extendAbove: 120,
+    contractBelow: 70,
+    extendAbove: 150,
     goalReps: 10
   },
 ];
@@ -128,14 +115,15 @@ const angleABC = (a: Pt, b: Pt, c: Pt) => {
   return (Math.acos(cos) * 180) / Math.PI;
 };
 
-type Screen = 'home' | 'workout';
+type Screen = 'landing' | 'workout' | 'summary';
 
 export default function App() {
-  const [showLanding, setShowLanding] = useState(true);
+  const [screen, setScreen] = useState<Screen>('landing');
   const [activeWorkouts, setActiveWorkouts] = useState<WorkoutConfig[]>([]);
 
   const [landmarks, setLandmarks] = useState<PosePayload | null>(null);
-  const [reps, setReps] = useState(0);
+  // repMap stores completed reps per workoutId so switching workouts preserves counts
+  const [repMap, setRepMap] = useState<Record<number, number>>({});
   const [currentAngle, setCurrentAngle] = useState<number | null>(null);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState(WORKOUTS[0].id);
   const [hasCameraPermission, setHasCameraPermission] = useState(
@@ -149,12 +137,21 @@ export default function App() {
   const selectedWorkout =
     activeWorkouts.find(w => w.id === selectedWorkoutId) ??
     activeWorkouts[0] ??
-    WORKOUTS[0];
+    WORKOUTS[0] ?? 
+    null;
+  
+  if (!selectedWorkout) {
+    return (
+      <View style={styles.wrap}>
+        <Text style={styles.noWorkout}>No workout selected.</Text>
+      </View>
+    );
+  }
 
-  const selectedWorkoutOptions: WorkoutChoiceItem[] = activeWorkouts.map(w => ({
-    key: w.label,
-    workoutId: w.id,
-    reps: w.goalReps,
+  const selectedWorkoutOptions: WorkoutOption[] = activeWorkouts.map(w => ({
+    id: w.id,
+    label: w.label,
+    goalReps: w.goalReps,
   }));
 
   const selectedWorkoutRef = useRef(selectedWorkout);
@@ -198,11 +195,11 @@ export default function App() {
       selectedWorkoutRef.current = resolved[0];
     }
 
-    setReps(0);
+    setRepMap({});
     setCurrentAngle(null);
     phaseRef.current = null;
     angleEmaRef.current = null;
-    setShowLanding(false);
+    setScreen('workout');
   };
 
   const onSelectWorkout = (id: number) => {
@@ -210,7 +207,7 @@ export default function App() {
     if (!next) return;
     selectedWorkoutRef.current = next;
     setSelectedWorkoutId(id);
-    setReps(0);
+    // do NOT reset repMap here — preserve reps when switching workouts
     setCurrentAngle(null);
     phaseRef.current = null;
     angleEmaRef.current = null;
@@ -232,8 +229,23 @@ export default function App() {
       return;
     }
 
- 
+    // Require all three joints to be clearly visible in frame.
+    // visibility < 0.5 means the joint is likely occluded or out of frame.
+    // When any joint drops out, reset phase so no phantom rep is counted
+    // when the user steps back in.
+    const VISIBILITY_THRESHOLD = 0.6;
+    const allVisible =
+      (a.visibility ?? 1) >= VISIBILITY_THRESHOLD &&
+      (b.visibility ?? 1) >= VISIBILITY_THRESHOLD &&
+      (c.visibility ?? 1) >= VISIBILITY_THRESHOLD;
 
+    if (!allVisible) {
+      // reset tracking state so re-entry starts clean
+      phaseRef.current = null;
+      angleEmaRef.current = null;
+      setCurrentAngle(null);
+      return;
+    }
 
     const rawAngle = angleABC(a, b, c);
     const alpha = 0.25;
@@ -261,14 +273,68 @@ export default function App() {
       angle > workout.extendAbove
     ) {
       phaseRef.current = 'extended';
-      setReps(current => current + 1);
+      setRepMap(prev => ({
+        ...prev,
+        [selectedWorkoutRef.current.id]: (prev[selectedWorkoutRef.current.id] ?? 0) + 1,
+      }));
     }
   };
 
 
+  const finishWorkout = () => {
+    setCurrentAngle(null);
+    phaseRef.current = null;
+    angleEmaRef.current = null;
+    setScreen('summary');
+  };
+
+  const returnHome = () => {
+    setRepMap({});
+    setActiveWorkouts([]);
+    setCurrentAngle(null);
+    phaseRef.current = null;
+    angleEmaRef.current = null;
+    setScreen('landing');
+  };
+
+  if (screen === 'summary') {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.summaryWrap}>
+          <Text style={styles.summaryTitle}>Workout Complete!</Text>
+          <Text style={styles.summarySubtitle}>Workout summary:</Text>
+
+          <View style={styles.summaryList}>
+            {activeWorkouts.map(w => {
+              const done = repMap[w.id] ?? 0;
+              const goal = w.goalReps;
+              const achieved = done >= goal;
+              return (
+                <View key={w.id} style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>{w.label}</Text>
+                  <Text style={[styles.summaryReps, achieved && styles.summaryRepsAchieved]}>
+                    {done} / {goal}
+                  </Text>
+                  <Text style={styles.summaryCheck}>{achieved ? '✓' : '–'}</Text>
+                </View>
+              );
+            })}
+          </View>
+
+          <TouchableOpacity
+            style={styles.homeBtn}
+            onPress={returnHome}
+            activeOpacity={0.85}>
+            <Text style={styles.homeBtnText}>Back to Home</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <>
-      {showLanding ? (
+      {screen === 'landing' ? (
         <HomeLanding
           cameraPermission={hasCameraPermission}
           onStartWorkout={onStartWorkout}
@@ -281,16 +347,17 @@ export default function App() {
           {hasCameraPermission ? (
             <>
               <WorkoutPanel
-                reps={reps}
+                reps={repMap[selectedWorkoutId] ?? 0}
                 angle={currentAngle}
                 selectedWorkoutId={selectedWorkoutId}
                 workouts={selectedWorkoutOptions}
                 onSelectWorkout={onSelectWorkout}
               />
+            <View style={styles.cameraWrap}>
               <RNMediapipe
-                width={300}
-                height={300}
-                face={true}
+                width={width}
+                height={height / 1.5}
+                face={false}
                 leftArm={true}
                 rightArm={true}
                 leftWrist={true}
@@ -303,32 +370,141 @@ export default function App() {
                 onLandmark={raw => {
                   const data: PosePayload =
                     typeof raw === 'string' ? JSON.parse(raw) : (raw as PosePayload);
-
                   processWorkout(data);
                   setLandmarks(data);
                 }}
               />
+              </View>
+
+              {/* Switch camera — top-right corner above the feed */}
+              <TouchableOpacity
+                style={styles.switchCameraBtn}
+                onPress={() => switchCamera()}
+                activeOpacity={0.8}>
+                <Text style={styles.switchCameraBtnText}>⇄ Flip</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.finishBtn}
+                onPress={finishWorkout}
+                activeOpacity={0.85}>
+                <Text style={styles.finishBtnText}>✓  Finish Workout</Text>
+              </TouchableOpacity>
             </>
           ) : (
-            <Text style={styles.debug}>Camera permission is required.</Text>
-          )}
-          {landmarks && (
-            <Text style={styles.debug} numberOfLines={3}>
-              {JSON.stringify(landmarks).slice(0, 120)}...
-            </Text>
+            <View style={styles.permissionWrap}>
+              <Text style={styles.permissionText}>
+                Camera permission is required to track your workout.
+              </Text>
+              <Text
+                style={styles.permissionLink}
+                onPress={requestCameraPermission}>
+                Enable Camera
+              </Text>
+            </View>
           )}
         </SafeAreaView>
+
       )}
     </>
   );
 }
 
+const {width, height} = Dimensions.get('window');
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0B0B0F',
+  },
+  summaryWrap: {
+    flex: 1,
+    paddingHorizontal: 24,
+    paddingTop: 32,
+    paddingBottom: 24,
+    backgroundColor: '#0B0B0F',
+  },
+  summaryTitle: {
+    color: '#FFFFFF',
+    fontSize: 28,
+    fontWeight: '900',
+    marginBottom: 6,
+  },
+  summarySubtitle: {
+    color: '#A6ADBB',
+    fontSize: 14,
+    marginBottom: 24,
+  },
+  summaryList: {
+    gap: 10,
+    flex: 1,
+  },
+  summaryRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 16,
+    backgroundColor: '#12131A',
+    borderWidth: 1,
+    borderColor: '#1E202B',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 8,
+  },
+  summaryLabel: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  summaryReps: {
+    color: '#A6ADBB',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  summaryRepsAchieved: {
+    color: '#4ADE80',
+  },
+  summaryCheck: {
+    color: '#4ADE80',
+    fontSize: 16,
+    fontWeight: '900',
+    width: 20,
+    textAlign: 'center',
+  },
+  homeBtn: {
+    marginTop: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  homeBtnText: {
+    color: '#0B0B0F',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  cameraWrap: {
+    flex: 1,
+    width: '100%',
+    overflow: 'hidden',
+  },
+  permissionWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    gap: 12,
+  },
+  permissionText: {
+    color: '#A6ADBB',
+    fontSize: 15,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  permissionLink: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
   },
   title: {
     color: '#FFFFFF',
@@ -340,5 +516,44 @@ const styles = StyleSheet.create({
     color: '#555',
     fontSize: 11,
     fontFamily: 'monospace',
+  },
+  switchCameraBtn: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    zIndex: 10,
+  },
+  switchCameraBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  finishBtn: {
+    position: 'absolute',   // floats over the camera
+    bottom: 32,
+    left: 20,
+    right: 20,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: '#FF4C4C',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  finishBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+    letterSpacing: -0.2,
   },
 });
