@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {
   PermissionsAndroid,
   Platform,
@@ -53,6 +53,13 @@ const WORKOUTS: WorkoutConfig[] = [
     contractBelow: 80,
     extendAbove: 155,
   },
+  {
+    id: 'squat',
+    label: 'Squat',
+    points: [23, 25, 27],
+    contractBelow: 80,
+    extendAbove: 155,
+  },
 ];
 
 const angleABC = (a: Pt, b: Pt, c: Pt) => {
@@ -61,14 +68,17 @@ const angleABC = (a: Pt, b: Pt, c: Pt) => {
   const dot = ab.x * cb.x + ab.y * cb.y;
   const magAB = Math.hypot(ab.x, ab.y);
   const magCB = Math.hypot(cb.x, cb.y);
-  if (!magAB || !magCB) {
-    return 180;
-  }
+  if (!magAB || !magCB) return 180;
   const cos = Math.max(-1, Math.min(1, dot / (magAB * magCB)));
   return (Math.acos(cos) * 180) / Math.PI;
 };
 
+type Screen = 'home' | 'workout';
+
 export default function App() {
+  const [screen, setScreen] = useState<Screen>('home');
+
+  // ---- Rep counting state (kept from your original) ----
   const [landmarks, setLandmarks] = useState<PosePayload | null>(null);
   const [reps, setReps] = useState(0);
   const [currentAngle, setCurrentAngle] = useState<number | null>(null);
@@ -137,9 +147,9 @@ export default function App() {
     const confident = [a, b, c].every(
       point => (point.visibility ?? 1) > 0.5 && (point.presence ?? 1) > 0.5,
     );
-    if (!confident) {
-      return;
-    }
+
+    setTrackingQuality(confident ? 'good' : 'low');
+    if (!confident) return;
 
     const rawAngle = angleABC(a, b, c);
     const alpha = 0.25;
@@ -256,23 +266,20 @@ const SPACING = 16;
 const RADIUS = 18;
 
 const styles = StyleSheet.create({
-  container: {
+  safe: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
-    alignItems: 'center',
-    paddingTop: 20,
-    gap: 16,
+    backgroundColor: '#0B0B0F',
   },
-  title: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
-    letterSpacing: 1,
+
+  // HOME
+  page: {
+    flex: 1,
+    paddingHorizontal: SPACING,
+    paddingTop: 10,
   },
   debug: {
     color: '#555',
     fontSize: 11,
-    paddingHorizontal: 16,
     fontFamily: 'monospace',
   },
   safe: {
