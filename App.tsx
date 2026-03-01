@@ -49,7 +49,8 @@ type WorkoutConfig = {
   points: [number, number, number];
   contractBelow: number;
   extendAbove: number;
-  goalReps: number
+  goalReps: number;
+  goalSets: number;
 };
 
 /* WORKOUTS:
@@ -62,7 +63,8 @@ const WORKOUTS: WorkoutConfig[] = [
     points: [11, 13, 15],
     contractBelow: 55,
     extendAbove: 150,
-    goalReps: 10
+    goalReps: 10,
+    goalSets: 3,
   },
   {
     id: 1,
@@ -70,7 +72,8 @@ const WORKOUTS: WorkoutConfig[] = [
     points: [11, 13, 15],
     contractBelow: 95,
     extendAbove: 160,
-    goalReps: 10
+    goalReps: 10,
+    goalSets: 3,
   },
   {
     id: 2,
@@ -78,7 +81,8 @@ const WORKOUTS: WorkoutConfig[] = [
     points: [11, 23, 25],
     contractBelow: 80,
     extendAbove: 155,
-    goalReps: 10
+    goalReps: 10,
+    goalSets: 3,
   },
   {
     id: 3,
@@ -86,7 +90,8 @@ const WORKOUTS: WorkoutConfig[] = [
     points: [23, 25, 27],
     contractBelow: 95,
     extendAbove: 160,
-    goalReps: 10
+    goalReps: 10,
+    goalSets: 3,
   },
   {
     id: 4,
@@ -94,7 +99,8 @@ const WORKOUTS: WorkoutConfig[] = [
     points: [11, 13, 15],
     contractBelow: 70,
     extendAbove: 150,
-    goalReps: 10
+    goalReps: 10,
+    goalSets: 3,
   },
 ];
 
@@ -152,6 +158,7 @@ export default function App() {
     id: w.id,
     label: w.label,
     goalReps: w.goalReps,
+    goalSets: w.goalSets,
   }));
 
   const selectedWorkoutRef = useRef(selectedWorkout);
@@ -183,7 +190,7 @@ export default function App() {
       .map(choice => {
         const base = WORKOUTS.find(w => w.id === choice.workoutId);
         if (!base) return null;
-        return {...base, goalReps: choice.reps};
+        return {...base, goalReps: choice.reps, goalSets: choice.sets};
       })
       .filter((w): w is WorkoutConfig => w !== null);
 
@@ -307,13 +314,13 @@ export default function App() {
           <View style={styles.summaryList}>
             {activeWorkouts.map(w => {
               const done = repMap[w.id] ?? 0;
-              const goal = w.goalReps;
+              const goal = w.goalReps * w.goalSets;
               const achieved = done >= goal;
               return (
                 <View key={w.id} style={styles.summaryRow}>
                   <Text style={styles.summaryLabel}>{w.label}</Text>
                   <Text style={[styles.summaryReps, achieved && styles.summaryRepsAchieved]}>
-                    {done} / {goal}
+                    {done} / {goal} ({w.goalSets}×{w.goalReps})
                   </Text>
                   <Text style={styles.summaryCheck}>{achieved ? '✓' : '–'}</Text>
                 </View>

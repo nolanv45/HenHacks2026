@@ -12,7 +12,15 @@ import WorkoutChoices, {makeDefaultWorkoutChoices, WorkoutChoiceItem} from './Wo
 
 
 
-type WorkoutConfig = {id: number; label: string; points: [number, number, number]; extendAbove: number; contractBelow: number, goalReps: number};
+type WorkoutConfig = {
+  id: number;
+  label: string;
+  points: [number, number, number];
+  extendAbove: number;
+  contractBelow: number;
+  goalReps: number;
+  goalSets: number;
+};
 
 // Local redefinition of the same WorkoutConfig that already lives in App.tsx
 

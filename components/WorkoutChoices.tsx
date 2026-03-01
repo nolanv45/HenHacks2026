@@ -1,14 +1,7 @@
-import React, {useMemo} from 'react';
-import {StyleSheet, Text, TouchableOpacity, View, TextInput, ScrollView} from 'react-native';
+import React, {useMemo, useState} from 'react';
+import {ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View} from 'react-native';
 
 export type WeightUnit = 'lbs' | 'kg';
-
-// The setup necessary for all the workouts in the app
-// id allows incrementation of the workouts (goal reps reached)
-// label is simply the name of the exercise, whereas points is the
-// three angle points for the rep counting algorithm
-// as far as extendAbove and contractBelow, these are the thresholds for the angles to count as a rep
-// goalReps is the target number of reps for the workout, which can be used to give feedback to the user
 
 export type WorkoutConfig = {
   id: number;
@@ -17,13 +10,17 @@ export type WorkoutConfig = {
   extendAbove: number;
   contractBelow: number;
   goalReps: number;
+  goalSets: number;
 };
 
 export type WorkoutChoiceItem = {
   key: string;
   workoutId: number;
   reps: number;
+  sets: number;
 };
+
+type NumberField = 'reps' | 'sets';
 
 type Props = {
   workouts: WorkoutConfig[];
@@ -38,85 +35,167 @@ export const makeDefaultWorkoutChoiceItem = (
   key: `item-${workout.id}`,
   workoutId: workout.id,
   reps: workout.goalReps ?? 10,
+  sets: workout.goalSets ?? 3,
 });
 
 export const makeDefaultWorkoutChoices = (
   workouts: WorkoutConfig[],
 ): WorkoutChoiceItem[] => {
-  if (!workouts || workouts.length === 0) return [];
+  if (!workouts || workouts.length === 0) {
+    return [];
+  }
   return [makeDefaultWorkoutChoiceItem(workouts[0])];
 };
 
 export default function WorkoutChoices({workouts, value, onChange}: Props) {
-  const selectedIds = useMemo(
-    () => new Set(value.map(v => v.workoutId)),
-    [value],
-  );
+  const [editingWorkoutId, setEditingWorkoutId] = useState<number | null>(null);
+  const [editingField, setEditingField] = useState<NumberField | null>(null);
+  const [editingText, setEditingText] = useState('');
 
-  const getChoice = (workoutId: number) =>
-    value.find(item => item.workoutId === workoutId);
+  const selectedIds = useMemo(() => new Set(value.map(v => v.workoutId)), [value]);
+
+  const getChoice = (workoutId: number) => value.find(item => item.workoutId === workoutId);
 
   const toggleWorkout = (workout: WorkoutConfig) => {
     const isSelected = selectedIds.has(workout.id);
     if (isSelected) {
+      if (editingWorkoutId === workout.id) {
+        setEditingWorkoutId(null);
+        setEditingField(null);
+        setEditingText('');
+      }
       onChange(value.filter(item => item.workoutId !== workout.id));
       return;
     }
     onChange([...value, makeDefaultWorkoutChoiceItem(workout)]);
   };
 
-  const updateReps = (workout: WorkoutConfig, text: string) => {
-    const parsed = parseInt(text.replace(/[^\d]/g, ''), 10);
-    const reps = Number.isFinite(parsed) && parsed > 0 ? parsed : workout.goalReps ?? 10;
-
-    if (!selectedIds.has(workout.id)) {
-      onChange([...value, {...makeDefaultWorkoutChoiceItem(workout), reps}]);
+  const updateChoiceNumber = (workout: WorkoutConfig, field: NumberField, text: string) => {
+    const digits = text.replace(/[^\d]/g, '');
+    if (!digits) {
       return;
     }
 
-    onChange(
-      value.map(item =>
-        item.workoutId === workout.id ? {...item, reps} : item,
-      ),
-    );
+    const parsed = parseInt(digits, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return;
+    }
+
+    if (!selectedIds.has(workout.id)) {
+      onChange([...value, {...makeDefaultWorkoutChoiceItem(workout), [field]: parsed}]);
+      return;
+    }
+
+    onChange(value.map(item => (item.workoutId === workout.id ? {...item, [field]: parsed} : item)));
   };
 
+  const onNumberFocus = (workout: WorkoutConfig, field: NumberField, currentValue: number) => {
+    if (!selectedIds.has(workout.id)) {
+      return;
+    }
+
+    setEditingWorkoutId(workout.id);
+    setEditingField(field);
+    setEditingText(String(currentValue));
+  };
+
+  const onNumberChange = (workout: WorkoutConfig, field: NumberField, text: string) => {
+    const maxLength = field === 'sets' ? 2 : 3;
+    const digitsOnly = text.replace(/[^\d]/g, '').slice(0, maxLength);
+    setEditingText(digitsOnly);
+    if (digitsOnly) {
+      updateChoiceNumber(workout, field, digitsOnly);
+    }
+  };
+
+  const onNumberBlur = (workout: WorkoutConfig, field: NumberField, currentValue: number) => {
+    if (editingWorkoutId !== workout.id || editingField !== field) {
+      return;
+    }
+
+    const defaultValue = field === 'reps' ? workout.goalReps ?? 10 : workout.goalSets ?? 3;
+    const fallbackValue = currentValue > 0 ? currentValue : defaultValue;
+
+    if (!editingText) {
+      updateChoiceNumber(workout, field, String(fallbackValue));
+    } else {
+      const normalized = parseInt(editingText, 10);
+      if (Number.isFinite(normalized) && normalized > 0) {
+        updateChoiceNumber(workout, field, String(normalized));
+      } else {
+        updateChoiceNumber(workout, field, String(fallbackValue));
+      }
+    }
+
+    setEditingWorkoutId(null);
+    setEditingField(null);
+    setEditingText('');
+  };
 
   return (
     <ScrollView>
-    <View style={styles.wrap}>
-      <Text style={styles.title}>Select workouts</Text>
-      {workouts.map(workout => {
-        const selected = selectedIds.has(workout.id);
-        const currentReps = getChoice(workout.id)?.reps ?? workout.goalReps ?? 10;
+      <View style={styles.wrap}>
+        <Text style={styles.title}>Select workouts</Text>
+        {workouts.map(workout => {
+          const selected = selectedIds.has(workout.id);
+          const currentChoice = getChoice(workout.id);
+          const currentReps = currentChoice?.reps ?? workout.goalReps ?? 10;
+          const currentSets = currentChoice?.sets ?? workout.goalSets ?? 3;
 
-        return (
-          <View key={workout.id} style={styles.row}>
-            <TouchableOpacity
-              onPress={() => toggleWorkout(workout)}
-              style={[styles.item, selected && styles.itemSelected]}
-              activeOpacity={0.9}>
-              <Text style={[styles.itemText, selected && styles.itemTextSelected]}>
-                {selected ? '✓  ' : ''}{workout.label}
-              </Text>
-            </TouchableOpacity>
+          const displayReps =
+            editingWorkoutId === workout.id && editingField === 'reps'
+              ? editingText
+              : String(currentReps);
+          const displaySets =
+            editingWorkoutId === workout.id && editingField === 'sets'
+              ? editingText
+              : String(currentSets);
 
-            <View style={styles.repsWrap}>
-              <TextInput
-                style={[styles.repsInput, !selected && styles.repsInputDisabled]}
-                value={String(currentReps)}
-                onChangeText={text => updateReps(workout, text)}
-                keyboardType="number-pad"
-                editable={selected}
-                maxLength={3}
-                placeholderTextColor="#8A92A3"
-              />
-              <Text style={styles.repsLabel}>reps</Text>
+          return (
+            <View key={workout.id} style={styles.row}>
+              <TouchableOpacity
+                onPress={() => toggleWorkout(workout)}
+                style={[styles.item, selected && styles.itemSelected]}
+                activeOpacity={0.9}>
+                <Text style={[styles.itemText, selected && styles.itemTextSelected]}>
+                  {selected ? '✓  ' : ''}
+                  {workout.label}
+                </Text>
+              </TouchableOpacity>
+
+              <View style={styles.repsWrap}>
+                <TextInput
+                  style={[styles.repsInput, !selected && styles.repsInputDisabled]}
+                  value={displayReps}
+                  onFocus={() => onNumberFocus(workout, 'reps', currentReps)}
+                  onChangeText={text => onNumberChange(workout, 'reps', text)}
+                  onBlur={() => onNumberBlur(workout, 'reps', currentReps)}
+                  keyboardType="number-pad"
+                  editable={selected}
+                  maxLength={3}
+                  placeholderTextColor="#8A92A3"
+                />
+                <Text style={styles.repsLabel}>reps</Text>
+              </View>
+
+              <View style={styles.repsWrap}>
+                <TextInput
+                  style={[styles.repsInput, !selected && styles.repsInputDisabled]}
+                  value={displaySets}
+                  onFocus={() => onNumberFocus(workout, 'sets', currentSets)}
+                  onChangeText={text => onNumberChange(workout, 'sets', text)}
+                  onBlur={() => onNumberBlur(workout, 'sets', currentSets)}
+                  keyboardType="number-pad"
+                  editable={selected}
+                  maxLength={2}
+                  placeholderTextColor="#8A92A3"
+                />
+                <Text style={styles.repsLabel}>sets</Text>
+              </View>
             </View>
-          </View>
-        );
-      })}
-    </View>
+          );
+        })}
+      </View>
     </ScrollView>
   );
 }

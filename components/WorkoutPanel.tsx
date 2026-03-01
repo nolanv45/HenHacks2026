@@ -16,6 +16,7 @@ export type WorkoutOption = {
   id: number;
   label: string;
   goalReps: number;
+  goalSets: number;
 };
 
 type WorkoutPanelProps = {
@@ -44,12 +45,25 @@ export default function WorkoutPanel({
     );
   }
 
+  const totalGoalReps = current.goalSets * current.goalReps;
+  const clampedReps = Math.min(reps, totalGoalReps);
+  const completedSets = Math.floor(clampedReps / current.goalReps);
+  const isWorkoutComplete = clampedReps >= totalGoalReps;
+  const currentSet = isWorkoutComplete
+    ? current.goalSets
+    : Math.min(completedSets + 1, current.goalSets);
+  const repsIntoSet = isWorkoutComplete
+    ? current.goalReps
+    : (clampedReps % current.goalReps);
+
   return (
     <View style={styles.wrapper}>
       <Text style={styles.label}>{current.label}</Text>
       <Text style={styles.reps}>
-        {reps} / {current.goalReps} reps
+        {reps} / {totalGoalReps} reps
       </Text>
+      <Text style={styles.angle}>Set {currentSet} / {current.goalSets}</Text>
+      <Text style={styles.angle}>Reps this set: {repsIntoSet} / {current.goalReps}</Text>
       <Text style={styles.angle}>
         Angle: {angle == null ? '--' : `${Math.round(angle)}°`}
       </Text>
