@@ -136,37 +136,13 @@ export default function App() {
     Platform.OS !== 'android',
   );
 
-
+  // Saves current state of user's movement
   const phaseRef = useRef<'contracted' | 'extended' | null>(null);
+
+  // Exponential Moving Average (EMA) smoothing filter, which takes raw angles and smooths them to produce a more stable angles
   const angleEmaRef = useRef<number | null>(null);
 
-  const selectedWorkout =
-    activeWorkouts.find(w => w.id === selectedWorkoutId) ??
-    activeWorkouts[0] ??
-    WORKOUTS[0] ?? 
-    null;
-  
-  if (!selectedWorkout) {
-    return (
-      <View style={styles.wrap}>
-        <Text style={styles.noWorkout}>No workout selected.</Text>
-      </View>
-    );
-  }
-
-  const selectedWorkoutOptions: WorkoutOption[] = activeWorkouts.map(w => ({
-    id: w.id,
-    label: w.label,
-    goalReps: w.goalReps,
-    goalSets: w.goalSets,
-  }));
-
-  const selectedWorkoutRef = useRef(selectedWorkout);
-
-  useEffect(() => {
-    selectedWorkoutRef.current = selectedWorkout;
-  }, [selectedWorkout]);
-
+  // Camera permissions for android devices
   const requestCameraPermission = async () => {
     if (Platform.OS !== 'android') {
       setHasCameraPermission(true);
@@ -180,16 +156,50 @@ export default function App() {
     return granted;
   };
 
+  // useEffect hook to track camera permission
   useEffect(() => {
     requestCameraPermission();
   }, []);
+
+  // Using null to stop errors with rep variable being undefined
+  const selectedWorkout =
+    activeWorkouts.find(w => w.id === selectedWorkoutId) ??
+    activeWorkouts[0] ??
+    WORKOUTS[0] ??
+    null;
+
+  // Saves current workouts to WorkoutPanel for user UI
+  const selectedWorkoutOptions: WorkoutOption[] = activeWorkouts.map(w => ({
+    id: w.id,
+    label: w.label,
+    goalReps: w.goalReps,
+    goalSets: w.goalSets,
+  }));
+
+  // Creates a reference of current workout
+  const selectedWorkoutRef = useRef(selectedWorkout);
+
+  // useEffect hook to constantly keep track of what workout is currently selected
+  useEffect(() => {
+    selectedWorkoutRef.current = selectedWorkout;
+  }, [selectedWorkout]);
+
+  if (!selectedWorkout) {
+    return (
+      <View style={styles.wrap}>
+        <Text style={styles.noWorkout}>No workout selected.</Text>
+      </View>
+    );
+  }
 
   const onStartWorkout = (choices: WorkoutChoiceItem[]) => {
     // Build activeWorkouts from user choices, applying their chosen reps
     const resolved: WorkoutConfig[] = choices
       .map(choice => {
         const base = WORKOUTS.find(w => w.id === choice.workoutId);
-        if (!base) return null;
+        if (!base) {
+          return null;
+        }
         return {...base, goalReps: choice.reps, goalSets: choice.sets};
       })
       .filter((w): w is WorkoutConfig => w !== null);
@@ -209,17 +219,20 @@ export default function App() {
     setScreen('workout');
   };
 
+  // Resets angles on change in workout, but keeps reps across exercises
   const onSelectWorkout = (id: number) => {
     const next = activeWorkouts.find(w => w.id === id) ?? activeWorkouts[0];
-    if (!next) return;
+    if (!next) {
+      return;
+    }
     selectedWorkoutRef.current = next;
     setSelectedWorkoutId(id);
-    // do NOT reset repMap here — preserve reps when switching workouts
     setCurrentAngle(null);
     phaseRef.current = null;
     angleEmaRef.current = null;
   };
 
+  // Main logic function running on each frame of the app
   const processWorkout = (payload: PosePayload) => {
     const workout = selectedWorkoutRef.current;
     const pts = payload.worldLandmarks ?? payload.landmarks;
@@ -227,6 +240,8 @@ export default function App() {
       return;
     }
 
+
+    // Takes the current exercise's landmark points for the angle calculations
     const [aIndex, bIndex, cIndex] = workout.points;
     const a = pts[aIndex];
     const b = pts[bIndex];
@@ -237,10 +252,10 @@ export default function App() {
     }
 
     // Require all three joints to be clearly visible in frame.
-    // visibility < 0.5 means the joint is likely occluded or out of frame.
+    // visibility < 0.55 means the joint is likely occluded or out of frame.
     // When any joint drops out, reset phase so no phantom rep is counted
     // when the user steps back in.
-    const VISIBILITY_THRESHOLD = 0.6;
+    const VISIBILITY_THRESHOLD = 0.55;
     const allVisible =
       (a.visibility ?? 1) >= VISIBILITY_THRESHOLD &&
       (b.visibility ?? 1) >= VISIBILITY_THRESHOLD &&
@@ -270,10 +285,8 @@ export default function App() {
       return;
     }
 
-    if (
-      phaseRef.current === 'extended' &&
-      angle < workout.contractBelow
-    ) {
+    // Rep counting logic, rep is only counted when the joint goes from extended state to contracted state and back to extended state
+    if (phaseRef.current === 'extended' && angle < workout.contractBelow) {
       phaseRef.current = 'contracted';
     } else if (
       phaseRef.current === 'contracted' &&
@@ -282,11 +295,11 @@ export default function App() {
       phaseRef.current = 'extended';
       setRepMap(prev => ({
         ...prev,
-        [selectedWorkoutRef.current.id]: (prev[selectedWorkoutRef.current.id] ?? 0) + 1,
+        [selectedWorkoutRef.current.id]:
+          (prev[selectedWorkoutRef.current.id] ?? 0) + 1,
       }));
     }
   };
-
 
   const finishWorkout = () => {
     setCurrentAngle(null);
@@ -360,6 +373,7 @@ export default function App() {
                 workouts={selectedWorkoutOptions}
                 onSelectWorkout={onSelectWorkout}
               />
+            {/* MediaPipe architecture, determining what landmarks are visible and parsing the raw data of the landmark detector*/}
             <View style={styles.cameraWrap}>
               <RNMediapipe
                 width={width}
@@ -417,6 +431,7 @@ export default function App() {
   );
 }
 
+// Frame resizing for camera
 const {width, height} = Dimensions.get('window');
 
 const styles = StyleSheet.create({
